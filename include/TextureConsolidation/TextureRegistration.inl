@@ -67,7 +67,12 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 		if( _params.erodeRadius ) flowed[i].confidence = _Erode( flowed[i].confidence , _params.erodeRadius , _params.erodeThreshold );
 	}
 
+	// The anchor: the blend of the normalized textures before any flow
+	const bool anchored = _params.anchorWeight>0;
+	if( anchored ) _anchor = StitchByWeightedConfidence( flowed );
+
 	double blurWeight = _params.blurWeight , regularizationWeight = _params.regularizationWeight;
+	double anchorBlur = _params.blurWeight , anchorWeight = _params.anchorWeight;
 	for( unsigned int l=0 ; l<_params.levels ; l++ )
 	{
 		Miscellany::PerformanceMeter pMeter( '.' );
@@ -91,7 +96,7 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 		while( true )
 		{
 			// Register the source to the target and update the flow-field of the source
-			FlowField delta = _flow( flowed[s] , target , blurWeight , regularizationWeight );
+			FlowField delta = anchored ? _anchoredFlow( flowed[s] , target , blurWeight , regularizationWeight , anchorBlur , anchorWeight ) : _flow( flowed[s] , target , blurWeight , regularizationWeight );
 			for( size_t v=0 ; v<flows[s].size() ; v++ ) flows[s][v] += delta[v];
 
 			// Advect the normalized source and merge it into the target
@@ -118,6 +123,12 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 		// Reduce the smoothing for the next level
 		blurWeight *= _params.factor;
 		regularizationWeight *= _params.factor;
+
+		// The anchor weight decays by anchorDecay; the anchor smoothing follows the level's
+		// smoothing for the first half of the levels and is then held, so the ghosted blend is never
+		// compared at fine scales
+		anchorWeight *= _params.anchorDecay;
+		if( l+1<=_params.levels/2 ) anchorBlur *= _params.factor;
 	}
 	return flows;
 }
@@ -139,13 +150,32 @@ typename TextureRegistration< Quadrature , Solver >::FlowField TextureRegistrati
 }
 
 template< unsigned int Quadrature , typename Solver >
+typename TextureRegistration< Quadrature , Solver >::FlowField TextureRegistration< Quadrature , Solver >::_anchoredFlow( const TextureAndConfidence &source , const TextureAndConfidence &target , double blurWeight , double regularizationWeight , double anchorBlur , double anchorWeight )
+{
+	// The source/target term at the level's smoothing, and the source/anchor term at the anchor smoothing
+	TextureToVertex< Quadrature , Solver , K , Dim > sourceToVertex( _mesh ) , targetToVertex( _mesh ) , coarseSourceToVertex( _mesh ) , anchorToVertex( _mesh );
+	sourceToVertex.update( blurWeight , &source.confidence );
+	targetToVertex.update( blurWeight , &target.confidence );
+	coarseSourceToVertex.update( anchorBlur , &source.confidence );
+	anchorToVertex.update( anchorBlur , &_anchor.confidence );
+	FitTerm anchorTerm;
+	anchorTerm.sourceSignal = coarseSourceToVertex( source.texture , &source.confidence );
+	anchorTerm.targetSignal = anchorToVertex( _anchor.texture , &_anchor.confidence );
+	anchorTerm.sourceConfidence = &source.confidence;
+	anchorTerm.targetConfidence = &_anchor.confidence;
+	anchorTerm.weight = anchorWeight;
+	return _flow( sourceToVertex( source.texture , &source.confidence ) , targetToVertex( target.texture , &target.confidence ) , source.confidence , target.confidence , regularizationWeight , &anchorTerm );
+}
+
+template< unsigned int Quadrature , typename Solver >
 typename TextureRegistration< Quadrature , Solver >::FlowField TextureRegistration< Quadrature , Solver >::_flow
 (
 	const std::vector< Point< double , Channels > > &sourceSignal ,
 	const std::vector< Point< double , Channels > > &targetSignal ,
 	const RegularGrid< K , double > &sourceConfidence ,
 	const RegularGrid< K , double > &targetConfidence ,
-	double regularizationWeight
+	double regularizationWeight ,
+	const FitTerm *extra
 )
 {
 	using T = Point< double , Channels >;
@@ -154,6 +184,7 @@ typename TextureRegistration< Quadrature , Solver >::FlowField TextureRegistrati
 	//		E(V) = \int w * \sum_c [ < \nabla Source[c] , V > - ( Source[c] - Target[c] ) ]^2 + beta_reg * \int || \nabla V ||^2
 	// with w the product of the source and target confidences, giving the system
 	//		( \int w (\nabla Source)(\nabla Source)^T + beta_reg * S ) V = \int w ( Source - Target ) \nabla Source
+	// With an extra term, its fitting energy (with its own signals and confidences) is added, scaled by its weight.
 
 	TextureScalarField< K , double , K > sourceConfidenceField( _mesh.textureCoordinates() , sourceConfidence ) , targetConfidenceField( _mesh.textureCoordinates() , targetConfidence );
 
@@ -163,26 +194,52 @@ typename TextureRegistration< Quadrature , Solver >::FlowField TextureRegistrati
 	ScalarField< K , T > sourceField( _mesh , sourceSignal );
 	typename ScalarField< K , T >::Differential dSource( sourceField );
 
+	// The same for the extra term, built only when there is one
+	// (otherwise the references below alias the first term's data, and the extra term is never evaluated)
+	const bool hasExtra = extra!=nullptr;
+	const double extraWeight = hasExtra ? extra->weight : 0.;
+	std::optional< TextureScalarField< K , double , K > > _extraSourceConfidenceField , _extraTargetConfidenceField;
+	std::vector< T > extraDiff;
+	std::optional< ScalarField< K , T > > _extraDiffField , _extraSourceField;
+	std::optional< typename ScalarField< K , T >::Differential > _dExtraSource;
+	if( hasExtra )
+	{
+		_extraSourceConfidenceField.emplace( _mesh.textureCoordinates() , *extra->sourceConfidence );
+		_extraTargetConfidenceField.emplace( _mesh.textureCoordinates() , *extra->targetConfidence );
+		extraDiff.resize( sourceSignal.size() );
+		for( size_t i=0 ; i<sourceSignal.size() ; i++ ) extraDiff[i] = extra->sourceSignal[i] - extra->targetSignal[i];
+		_extraDiffField.emplace( _mesh , extraDiff );
+		_extraSourceField.emplace( _mesh , extra->sourceSignal );
+		_dExtraSource.emplace( *_extraSourceField );
+	}
+	const TextureScalarField< K , double , K > &extraSourceConfidenceField = hasExtra ? *_extraSourceConfidenceField : sourceConfidenceField;
+	const TextureScalarField< K , double , K > &extraTargetConfidenceField = hasExtra ? *_extraTargetConfidenceField : targetConfidenceField;
+	const ScalarField< K , T > &extraDiffField = hasExtra ? *_extraDiffField : signalDiffField;
+	const typename ScalarField< K , T >::Differential &dExtraSource = hasExtra ? *_dExtraSource : dSource;
+
 	// The transformation taking intrinsic tangents to extrinsic tangents
 	PhongRodriguesIntrinsicToExtrinsicTangentXFormField< K > I2E( _mesh );
 
-	// The weight
+	// The weights
 	auto W = [&]( size_t sIdx ){ return [s=sourceConfidenceField[sIdx],t=targetConfidenceField[sIdx]]( SimplexProcessing::Position< K > p ){ return s(p) * t(p); }; };
+	auto WE = [&]( size_t sIdx ){ return [s=extraSourceConfidenceField[sIdx],t=extraTargetConfidenceField[sIdx],extraWeight]( SimplexProcessing::Position< K > p ){ return s(p) * t(p) * extraWeight; }; };
 
 	// The outer product of the source gradients
-	auto _B = [&]( size_t sIdx )
+	auto _OuterB = [&]( size_t sIdx , const typename ScalarField< K , T >::Differential &d )
 		{
-			return [gInv=_mesh.inverseMetricTensorField(sIdx),i2e=I2E[sIdx],ds=dSource[sIdx]]( SimplexProcessing::Position< K > p )
+			return [gInv=_mesh.inverseMetricTensorField(sIdx),i2e=I2E[sIdx],ds=d[sIdx]]( SimplexProcessing::Position< K > p )
 				{
 					Point< Point< double , Channels > , Dim , double > g = i2e(p) * gInv(p) * ds(p);
 					return OuterProduct( g , g );
 				};
 		};
+	auto _B = [&]( size_t sIdx ){ return _OuterB( sIdx , dSource ); };
+	auto _BE = [&]( size_t sIdx ){ return _OuterB( sIdx , dExtraSource ); };
 
 	// The source gradient scaled by the difference between the source and target
-	auto _L = [&]( size_t sIdx )
+	auto _GradL = [&]( size_t sIdx , const ScalarField< K , T > &diff , const typename ScalarField< K , T >::Differential &d )
 		{
-			return [sdf=signalDiffField[sIdx],gInv=_mesh.inverseMetricTensorField(sIdx),i2e=I2E[sIdx],ds=dSource[sIdx]]( SimplexProcessing::Position< K > p )
+			return [sdf=diff[sIdx],gInv=_mesh.inverseMetricTensorField(sIdx),i2e=I2E[sIdx],ds=d[sIdx]]( SimplexProcessing::Position< K > p )
 				{
 					Point< Point< double , Dim > , Channels , double > g = _Transpose( i2e(p) * gInv(p) * ds(p) );
 					T d = sdf(p);
@@ -191,12 +248,15 @@ typename TextureRegistration< Quadrature , Solver >::FlowField TextureRegistrati
 					return v;
 				};
 		};
+	auto _L = [&]( size_t sIdx ){ return _GradL( sIdx , signalDiffField , dSource ); };
+	auto _LE = [&]( size_t sIdx ){ return _GradL( sIdx , extraDiffField , dExtraSource ); };
 
 	// The squared difference between the source and target
 	auto _C = [&]( size_t sIdx ){ return [sdf=signalDiffField[sIdx]]( SimplexProcessing::Position< K > p ){ return sdf(p).squareNorm(); }; };
+	auto _CE = [&]( size_t sIdx ){ return [sdf=extraDiffField[sIdx]]( SimplexProcessing::Position< K > p ){ return sdf(p).squareNorm(); }; };
 
-	auto B = [&]( size_t sIdx ){ return [_b=_B(sIdx),w=W(sIdx)]( SimplexProcessing::Position< K > p ){ return _b(p) * w(p); }; };
-	auto L = [&]( size_t sIdx ){ return [_l=_L(sIdx),w=W(sIdx)]( SimplexProcessing::Position< K > p ){ return _l(p) * w(p); }; };
+	auto B = [&]( size_t sIdx ){ return [_b=_B(sIdx),w=W(sIdx),_be=_BE(sIdx),we=WE(sIdx),hasExtra]( SimplexProcessing::Position< K > p ){ return hasExtra ? _b(p) * w(p) + _be(p) * we(p) : _b(p) * w(p); }; };
+	auto L = [&]( size_t sIdx ){ return [_l=_L(sIdx),w=W(sIdx),_le=_LE(sIdx),we=WE(sIdx),hasExtra]( SimplexProcessing::Position< K > p ){ return hasExtra ? _l(p) * w(p) + _le(p) * we(p) : _l(p) * w(p); }; };
 
 	// The fitting matrix and dual vector
 	auto SysB = [&]( size_t sIdx )
@@ -220,14 +280,19 @@ typename TextureRegistration< Quadrature , Solver >::FlowField TextureRegistrati
 		PhongRodriguesVectorField< K > flowField( _mesh , flow );
 		auto Energy = [&]( size_t sIdx )
 			{
-				return [_b=_B(sIdx),_l=_L(sIdx),_c=_C(sIdx),w=W(sIdx),ff=flowField[sIdx]]( SimplexProcessing::Position< K > p )
+				return [_b=_B(sIdx),_l=_L(sIdx),_c=_C(sIdx),w=W(sIdx),_be=_BE(sIdx),_le=_LE(sIdx),_ce=_CE(sIdx),we=WE(sIdx),hasExtra,ff=flowField[sIdx]]( SimplexProcessing::Position< K > p )
 					{
 						Polynomial::Polynomial< 1 , 2 , double > poly;
 						Point< double , Dim > f = ff(p);
 						poly.coefficient(2) = _b(p)(f,f);
 						poly.coefficient(1) = -2 * Point< double , Dim >::Dot( f , _l(p) );
 						poly.coefficient(0u) = _c(p);
-						return poly * w(p);
+						if( !hasExtra ) return poly * w(p);
+						Polynomial::Polynomial< 1 , 2 , double > polyE;
+						polyE.coefficient(2) = _be(p)(f,f);
+						polyE.coefficient(1) = -2 * Point< double , Dim >::Dot( f , _le(p) );
+						polyE.coefficient(0u) = _ce(p);
+						return poly * w(p) + polyE * we(p);
 					};
 			};
 		double scale = 1.;

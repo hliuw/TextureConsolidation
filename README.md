@@ -87,7 +87,7 @@ unzip vase.zip
 Then run the three steps (on Windows, use `build/Release/` instead of `build/`):
 
 ```bash
-build/BackProjection --mesh vase/mesh.ply --cameras vase/cameras.json --outTextures vase/backprojected/%d.png --outConfidences vase/backprojected/%d.confidence.png
+build/BackProjection --mesh vase/mesh.ply --cameras vase/cameras.json --res 2048 2048 --outTextures vase/backprojected/%d.png --outConfidences vase/backprojected/%d.confidence.png
 build/TextureFlow --mesh vase/mesh.ply --inTextures vase/backprojected/%d.png --inConfidences vase/backprojected/%d.confidence.png --outTextures vase/registered/%d.png --outConfidences vase/registered/%d.confidence.png
 build/TextureDomainStitching --in vase/mesh.ply vase/registered/%d.png --mask vase/registered/%d.confidence.png --multi --wType 1 --erode 1 --erodeEps 0.1 --out vase/texture.png
 ```
@@ -124,9 +124,11 @@ Below we show the blended back-projected photographs, and our result after regis
 | `--sWeight` | `0.5` | smoothness of the flow ($\beta_{reg}$) |
 | `--factor` | `0.5` | scaling of $\beta_{blur}$ and $\beta_{reg}$ per level |
 | `--normalization` | `1e-3` | extent of the color normalization ($\epsilon_n$) |
-| `--sub` | `1` | 1-to-4 subdivisions of the mesh |
+| `--sub` | `1` | number of times the mesh is subdivided 1-to-4 before computing the flows |
 | `--erode`, `--erodeEps` | `1`, `0.2` | confidence erosion used when computing the flows (see [Confidence erosion](#confidence-erosion)) |
 | `--minStep` | `1e-2` | minimum advection step size |
+| `--anchorWeight` | `1` | weight of the term anchoring the textures to the unregistered blend. Higher values keep the textures closer to their original locations, possibly at the cost of weaker registration; `0` disables anchoring |
+| `--anchorDecay` | `0.7` | per-level multiplier of the anchor weight, from coarse to fine levels. Lower values weaken the anchoring at the finer levels, where high-frequency details are registered |
 
 ### TextureDomainStitching
 

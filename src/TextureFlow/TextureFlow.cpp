@@ -75,7 +75,9 @@ CmdLineParameter< double >
 	Factor( "factor" , 0.5 ) ,
 	NormalizationWeight( "normalization" , 1e-3 ) ,
 	ErodeThreshold( "erodeEps" , 0.2 ) ,
-	MinStepSize( "minStep" , 1e-2 );
+	MinStepSize( "minStep" , 1e-2 ) ,
+	AnchorWeight( "anchorWeight" , 1. ) ,
+	AnchorDecay( "anchorDecay" , 0.7 );
 
 CmdLineReadable
 	Verbose( "verbose" );
@@ -96,6 +98,8 @@ std::vector< CmdLineReadable * > params =
 	&ErodeRadius ,
 	&ErodeThreshold ,
 	&MinStepSize ,
+	&AnchorWeight ,
+	&AnchorDecay ,
 	&Verbose ,
 };
 
@@ -112,10 +116,12 @@ void ShowUsage( const char* ex )
 	printf( "\t[--%s <smoothness of the flow (beta_reg)>=%g]\n" , RegularizationWeight.name.c_str() , RegularizationWeight.value );
 	printf( "\t[--%s <per-level scaling of beta_blur and beta_reg>=%g]\n" , Factor.name.c_str() , Factor.value );
 	printf( "\t[--%s <extent of the color normalization (epsilon_n)>=%g]\n" , NormalizationWeight.name.c_str() , NormalizationWeight.value );
-	printf( "\t[--%s <planar subdivision iterations>=%d]\n" , SubdivisionIterations.name.c_str() , SubdivisionIterations.value );
+	printf( "\t[--%s <number of 1-to-4 subdivisions of the mesh before computing the flows>=%d]\n" , SubdivisionIterations.name.c_str() , SubdivisionIterations.value );
 	printf( "\t[--%s <confidence erosion radius, in texels>=%d]\n" , ErodeRadius.name.c_str() , ErodeRadius.value );
 	printf( "\t[--%s <confidence erosion threshold>=%g]\n" , ErodeThreshold.name.c_str() , ErodeThreshold.value );
 	printf( "\t[--%s <minimum advection step size>=%g]\n" , MinStepSize.name.c_str() , MinStepSize.value );
+	printf( "\t[--%s <weight of the term anchoring the textures to the unregistered blend; higher values keep the textures closer to their original locations, possibly at the cost of weaker registration; 0 to disable>=%g]\n" , AnchorWeight.name.c_str() , AnchorWeight.value );
+	printf( "\t[--%s <per-level multiplier of the anchor weight, from coarse to fine; lower values weaken the anchoring at the finer levels>=%g]\n" , AnchorDecay.name.c_str() , AnchorDecay.value );
 	printf( "\t[--%s]\n" , Verbose.name.c_str() );
 }
 
@@ -181,6 +187,8 @@ int _main( int argc , char* argv[] )
 	registrationParams.erodeRadius = ErodeRadius.value;
 	registrationParams.erodeThreshold = ErodeThreshold.value;
 	registrationParams.verbose = Verbose.set;
+	registrationParams.anchorWeight = AnchorWeight.value;
+	registrationParams.anchorDecay = AnchorDecay.value;
 	Registration registration( mesh , textureAndConfidences[0].texture.res() , registrationParams );
 	std::vector< Registration::FlowField > flows = registration( textureAndConfidences );
 	if( Verbose.set ) std::cout << pMeter( "Registered" ) << std::endl;
