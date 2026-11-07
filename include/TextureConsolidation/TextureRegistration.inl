@@ -72,7 +72,7 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 	if( anchored ) _anchor = StitchByWeightedConfidence( flowed );
 
 	double blurWeight = _params.blurWeight , regularizationWeight = _params.regularizationWeight;
-	double anchorBlur = _params.blurWeight , anchorWeight = _params.anchorWeight;
+	double anchorWeight = _params.anchorWeight;
 	for( unsigned int l=0 ; l<_params.levels ; l++ )
 	{
 		Miscellany::PerformanceMeter pMeter( '.' );
@@ -96,7 +96,7 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 		while( true )
 		{
 			// Register the source to the target and update the flow-field of the source
-			FlowField delta = anchored ? _anchoredFlow( flowed[s] , target , blurWeight , regularizationWeight , anchorBlur , anchorWeight ) : _flow( flowed[s] , target , blurWeight , regularizationWeight );
+			FlowField delta = anchored ? _anchoredFlow( flowed[s] , target , blurWeight , regularizationWeight , blurWeight , anchorWeight ) : _flow( flowed[s] , target , blurWeight , regularizationWeight );
 			for( size_t v=0 ; v<flows[s].size() ; v++ ) flows[s][v] += delta[v];
 
 			// Advect the normalized source and merge it into the target
@@ -124,11 +124,8 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 		blurWeight *= _params.factor;
 		regularizationWeight *= _params.factor;
 
-		// The anchor weight decays by anchorDecay; the anchor smoothing follows the level's
-		// smoothing for the first half of the levels and is then held, so the ghosted blend is never
-		// compared at fine scales
+		// The anchor weight decays by anchorDecay
 		anchorWeight *= _params.anchorDecay;
-		if( l+1<=_params.levels/2 ) anchorBlur *= _params.factor;
 	}
 	return flows;
 }

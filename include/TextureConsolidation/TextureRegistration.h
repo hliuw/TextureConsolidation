@@ -75,9 +75,8 @@ namespace MishaK
 
 				// Anchoring to the (unregistered) blend, so the consolidated texture does not drift: every
 				// source-to-target solve also fits the source to the anchor, the confidence-weighted blend of the
-				// normalized textures before any flow. The blend is ghosted, so only its low frequencies are
-				// trusted: the anchor term uses the level's smoothing for the first half of the levels and then
-				// holds it, and its weight starts at anchorWeight and is scaled by anchorDecay at every level.
+				// normalized textures before any flow. The blend is ghosted, so the anchor is trusted less at the
+				// finer levels: its weight starts at anchorWeight and is scaled by anchorDecay at every level.
 				double anchorWeight = 1.;				// lambda_a: weight of the anchor term at level 0 (0 disables anchoring)
 				double anchorDecay = 0.7;				// d: per-level multiplier of the anchor weight
 			};
