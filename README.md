@@ -149,7 +149,7 @@ See the [TextureSignalProcessing documentation](https://github.com/mkazhdan/Text
 
 ## Acknowledgements
 
-The vase model and photographs used in the [example run](#example-run) are courtesy of Paolo Cignoni and Marco Callieri, [Visual Computing Laboratory, ISTI-CNR](https://vcg.isti.cnr.it/). We thank them for sharing this data and their code with us.
+The vase model and photographs used in the [example run](#example-run) are courtesy of Paolo Cignoni and Marco Callieri, [Visual Computing Laboratory, ISTI-CNR](https://vcg.isti.cnr.it/). We thank them for sharing this data and their code with us. We also thank Paolo Cignoni for contributing valuable improvements to this code.
 
 ## Citation
 
