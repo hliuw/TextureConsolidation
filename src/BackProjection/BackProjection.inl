@@ -157,13 +157,12 @@ namespace BackProjection
 			range.processParallel( Kernel );
 		}
 
-		std::atomic< double > var = 0;
-		std::atomic< size_t > count = 0;
-		ThreadPool::ParallelFor
-		(
-			0 , laplacian.size() ,
-			[&]( size_t i ){ if( laplacian[i]<std::numeric_limits< double >::infinity() ) count++ , var += laplacian[i] * laplacian[i]; }
-		);
+		// Reduce in pixel order: atomic floating-point additions are race-free but
+		// schedule-dependent, and the resulting threshold controls the confidence mask.
+		double var = 0;
+		size_t count = 0;
+		for( size_t i=0 ; i<laplacian.size() ; i++ )
+			if( laplacian[i]<std::numeric_limits< double >::infinity() ) count++ , var += laplacian[i] * laplacian[i];
 		double dev = sqrt( var / count );
 		ThreadPool::ParallelFor( 0 , laplacian.size() , [&]( size_t i ){ laplacian[i] /= dev; } );
 

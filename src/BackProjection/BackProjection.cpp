@@ -36,7 +36,6 @@ DAMAGE.
 #include <cstdlib>
 #include <vector>
 #include <string>
-#include <atomic>
 #include <filesystem>
 #include "Include/PreProcessing.h"
 

@@ -86,6 +86,9 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 				double overlap = _textureComparer.overlap( flowed[i].confidence , flowed[j].confidence );
 				if( overlap>maxOverlap ) maxOverlap = overlap , s = i , t = j;
 			}
+			// A NaN overlap compares false against everything, so if every pair's overlap is
+			// NaN no pair is selected; fail rather than index view -1.
+			if( s==static_cast< unsigned int >(-1) ) MK_THROW( "No pair of views has a finite overlap at level " , l , "; the confidences contain non-finite values" );
 			if( _textureComparer.coverage( flowed[s].confidence )>_textureComparer.coverage( flowed[t].confidence ) ) std::swap( s , t );
 		}
 		double preError = _params.verbose ? _textureComparer.error( flowed ) : 0;
@@ -107,12 +110,18 @@ std::vector< typename TextureRegistration< Quadrature , Solver >::FlowField > Te
 			if( registered.size()==n ) break;
 
 			// Select the next source: the one with the largest overlap with the target
+			// If every remaining overlap is NaN, none is selected and s would stay on a view
+			// already registered: registered would never grow and this loop would re-solve
+			// that view forever. Fail instead.
 			double maxOverlap = -std::numeric_limits< double >::infinity();
+			unsigned int next = static_cast< unsigned int >(-1);
 			for( unsigned int i=0 ; i<n ; i++ ) if( registered.find(i)==registered.end() )
 			{
 				double overlap = _textureComparer.overlap( target.confidence , flowed[i].confidence );
-				if( overlap>maxOverlap ) maxOverlap = overlap , s = i;
+				if( overlap>maxOverlap ) maxOverlap = overlap , next = i;
 			}
+			if( next==static_cast< unsigned int >(-1) ) MK_THROW( "No remaining view has a finite overlap with the target at level " , l , "; the confidences contain non-finite values" );
+			s = next;
 		}
 		if( _params.verbose )
 		{

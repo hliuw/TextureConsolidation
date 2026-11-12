@@ -21,6 +21,11 @@ find_package(ZLIB REQUIRED)
 # Compiler settings and libraries shared by every executable.
 add_library(tc_settings INTERFACE)
 target_link_libraries(tc_settings INTERFACE OpenMP::OpenMP_CXX PNG::PNG JPEG::JPEG ZLIB::ZLIB)
+# The vendored Eigen 3.3.7 (in PhongRodriguesVF and TextureSignalProcessing) uses
+# std::result_of when it believes the compiler has it, and C++20 removed it; libc++ (Apple
+# clang) enforces that. Eigen's own fallback is selected by this macro, which it guards
+# with #ifndef for exactly this purpose.
+target_compile_definitions(tc_settings INTERFACE EIGEN_HAS_STD_RESULT_OF=0)
 if(WIN32)
   # Misha includes <png.h>/<jpeglib.h>/<zlib.h> on Windows only when USE_VCPKG is set.
   target_compile_definitions(tc_settings INTERFACE USE_VCPKG _CRT_SECURE_NO_WARNINGS)
@@ -52,8 +57,11 @@ tc_add_executable(TextureFlow src/TextureFlow/TextureFlow.cpp)
 # Gradient-domain stitching (Sec. 6.3, Eq. 7), built unmodified from TextureSignalProcessing (without its OpenGL viewer).
 # extern/Misha precedes TSP's vendored copy of Misha, which is then only used for Eigen.
 set(TSP ${CMAKE_CURRENT_SOURCE_DIR}/extern/TextureSignalProcessing)
-add_executable(TextureDomainStitching ${TSP}/TextureStitching/TextureStitching.cpp)
+# Built through a one-line wrapper that makes Misha's MK_ERROR_OUT throw, so that every
+# failure ends with a non-zero exit status (see the wrapper for why).
+add_executable(TextureDomainStitching src/TextureDomainStitching/TextureDomainStitching.cpp)
 target_include_directories(TextureDomainStitching PRIVATE
+  ${TSP}
   ${TSP}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/extern/Misha
   ${TSP}/third_party/include)

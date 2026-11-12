@@ -104,6 +104,10 @@ const
 	if( !params.time ) return texture;
 
 	RegularGrid< K , T > out( texture.res() );
+	// _process only writes texels supported by the atlas. RegularGrid leaves scalar
+	// storage uninitialized, so confidence outside the atlas must be zero before
+	// interpolation or erosion can read it (Point-valued colors already default to zero).
+	for( size_t i=0 ; i<out.size() ; i++ ) out[i] = T{};
 	TextureScalarField< K , T , K > textureField( _mesh.textureCoordinates() , texture );
 	_process< T >( flowField , [&]( size_t s , Point< double , K > p ){ return textureField[s](p); } , [&]( unsigned int , size_t i , T t ){ out[i] = t; } , params );
 	return out;
