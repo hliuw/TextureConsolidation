@@ -1,9 +1,9 @@
 [submodule "extern/Misha"]
 	path = extern/Misha
-	url = https://github.com/cignoni/Misha.git
+	url = https://github.com/mkazhdan/Misha.git
 [submodule "extern/PhongRodriguesVF"]
 	path = extern/PhongRodriguesVF
-	url = https://github.com/cignoni/PhongRodriguesVF.git
+	url = https://github.com/mkazhdan/PhongRodriguesVF.git
 [submodule "extern/TextureSignalProcessing"]
 	path = extern/TextureSignalProcessing
-	url = https://github.com/cignoni/TextureSignalProcessing.git
+	url = https://github.com/mkazhdan/TextureSignalProcessing.git
